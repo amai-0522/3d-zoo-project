@@ -2,18 +2,23 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>3D ZOO - 受付画面</title>
     <link rel="stylesheet" href="css/style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
+    <div id="canvas-container"></div>
+
     <div id="ui-container">
-        <h1>3D ZOOへようこそ！</h1>
-        <p>スマホでQRコードを読み取って、写真を送ってね！</p>
+        <h1>3D ZOO</h1>
+        <p>スマホでQRを読み取って、写真を動物園に送り込もう！</p>
         <div id="qr-section">
             <div id="qrcode-container"></div>
         </div>
     </div>
+
     <script type="module" src="js/main.js"></script>
 </body>
 </html>
