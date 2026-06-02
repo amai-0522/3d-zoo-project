@@ -1,6 +1,3 @@
-// ========================================================
-// 1. 取得したFirebaseのConfigを正確に反映
-// ========================================================
 const firebaseConfig = {
   apiKey: "AIzaSyDMO7JZ7LPyvox8Q7SG_hFyODNZs-8Z9HI",
   authDomain: "d-zoo-project.firebaseapp.com",
@@ -11,14 +8,10 @@ const firebaseConfig = {
   measurementId: "G-1DC2PMC8X1"
 };
 
-// Firebase初期化
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const storage = firebase.storage();
 
-// ========================================================
-// 2. スマホ画面処理
-// ========================================================
 document.addEventListener('DOMContentLoaded', () => {
   const imageInput = document.getElementById('image-input');
   const uploadText = document.getElementById('upload-text');
@@ -54,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const snapshot = await storageRef.put(selectedFile);
           const imageUrl = await snapshot.ref.getDownloadURL();
 
-          // ② Firestoreにリクエストを追記（PC側がこれを自動検知します！）
+          // ② Firestoreにリクエストを追記
           await db.collection('zoo_animals').add({
               imageUrl: imageUrl,
               status: 'pending',
@@ -66,7 +59,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       } catch (error) {
           console.error("送信エラー:", error);
-          alert("送信に失敗しました。Firebaseのテストモード設定を確認してください。");
+          // 🌟 エラー内容をそのまま画面に出すようにしました
+          alert("エラー詳細: " + error.message);
           sendButton.disabled = false;
           sendButton.innerText = "動物園に送り込む！";
       }
