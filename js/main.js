@@ -20,7 +20,7 @@ const db = firebase.firestore();
 // ========================================================
 // 2. Tripo3D AI設定（★ご自身のAPIキーをここに貼り付け！★）
 // ========================================================
-const TRIPO_API_KEY = "YOUR_TRIPO_API_KEY"; 
+const TRIPO_API_KEY = "tsk_DsvEMDOKmX-cJHcztnrtp3g9bTZuL9pqafaim92Yiie"; 
 
 // ========================================================
 // 3. Three.js 3D空間のセットアップ
