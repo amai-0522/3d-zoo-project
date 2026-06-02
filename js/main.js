@@ -102,7 +102,7 @@ function startListeningForAnimals() {
                   }
               } catch (err) {
                   console.error(err);
-                  if (logDiv) logDiv.innerText = "❌ 生成依頼に失敗しました。";
+                  if (logDiv) logDiv.innerText = "❌ 生成依頼に失敗しました。" + err;
               }
           }
       });
