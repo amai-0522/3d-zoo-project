@@ -17,15 +17,12 @@ if (!firebase.apps.length) {
 const db = firebase.firestore();
 
 // ========================================================
-// 2. Tripo3D AI設定（★ご自身のAPIキーをここに貼り付け！★）
+// 2. Tripo3D AI設定
 // ========================================================
-const TRIPO_API_KEY = "tsk_DsvEMDOKmX-cJHcztnrtp3g9bTZuL9pqafaim92Yiie"; 
-
-// 🌟 より安定した、世界中で使われている超定番のプロキシサービスに変更
-const PROXY_URL = "https://api.allorigins.win/raw?url=";
+const TRIPO_API_KEY = "YOUR_API_KEY_HERE";
 
 // ========================================================
-// 3. Three.js 3D空間のセットアップ
+// 3. Three.js 空間セットアップ
 // ========================================================
 let scene, camera, renderer, gltfLoader;
 const animals = [];
@@ -37,7 +34,13 @@ function init3D() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x121212);
 
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera = new THREE.PerspectiveCamera(
+    60,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+  );
+
   camera.position.set(0, 3, 8);
   camera.lookAt(0, 1, 0);
 
@@ -45,166 +48,185 @@ function init3D() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   container.appendChild(renderer.domElement);
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
-  scene.add(ambientLight);
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  directionalLight.position.set(5, 10, 5);
-  scene.add(directionalLight);
+  const light = new THREE.AmbientLight(0xffffff, 0.8);
+  scene.add(light);
 
   gltfLoader = new THREE.GLTFLoader();
 
-  window.addEventListener('resize', onWindowResize);
   animate();
 }
 
 function animate() {
   requestAnimationFrame(animate);
-  animals.forEach(animal => {
-      animal.rotation.y += 0.01;
+
+  animals.forEach(a => {
+    a.rotation.y += 0.01;
   });
+
   renderer.render(scene, camera);
 }
 
-function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-}
-
 // ========================================================
-// 4. Firebase監視 ＆ Tripo3D AIによる自動3D化システム
+// 4. AI連携システム
 // ========================================================
 function startListeningForAnimals() {
   const logDiv = document.getElementById('status-log');
 
-  db.collection('zoo_animals').where('status', '==', 'pending')
-  .onSnapshot((snapshot) => {
+  db.collection('zoo_animals')
+    .where('status', '==', 'pending')
+    .onSnapshot((snapshot) => {
+
       snapshot.docChanges().forEach(async (change) => {
-          if (change.type === 'added') {
-              const docId = change.doc.id;
-              const animalData = change.doc.data();
-              
-              if (logDiv) logDiv.innerText = "🐾 新しい写真を受信！AIで3Dモデルを生成中...";
-              db.collection('zoo_animals').doc(docId).update({ status: 'processing' });
+
+        if (change.type === 'added') {
+
+          const docId = change.doc.id;
+          const data = change.doc.data();
+
+          if (logDiv) {
+            logDiv.innerText = "🐾 受信！AIに生成を依頼中...";
+          }
+
+          db.collection('zoo_animals')
+            .doc(docId)
+            .update({ status: 'processing' });
+
+          const createWithRetry = async (retries = 5) => {
+
+            for (let i = 0; i < retries; i++) {
 
               try {
-                  // 🌟 通信エラーを起こしにくい安定したプロキシ経由でリクエスト
-                  const targetUrl = 'https://api.tripo3d.ai/v2/task';
-                  const response = await fetch(PROXY_URL + encodeURIComponent(targetUrl), {
-                      method: 'POST',
-                      headers: {
-                          'Content-Type': 'application/json',
-                          'Authorization': `Bearer ${TRIPO_API_KEY}`
-                      },
-                      body: JSON.stringify({
-                          type: 'image_to_model', 
-                          file: {
-                              type: 'jpg',
-                              url: animalData.imageUrl
-                          }
-                      })
-                  });
-                  
-                  const resData = await response.json();
-                  
-                  if (!resData.data || !resData.data.task_id) {
-                      throw new Error(resData.message || "AI側からエラーが返されました。キーや画像を確認してください。");
-                  }
-                  
-                  const taskId = resData.data.task_id;
-                  checkAiTaskStatus(taskId, docId, logDiv);
 
-              } catch (err) {
-                  console.error("AIタスク作成失敗:", err);
-                  if (logDiv) logDiv.innerText = "❌ AIタスクの作成に失敗しました: " + err.message;
-                  // 失敗したらステータスを戻して、再トライできるようにする
-                  db.collection('zoo_animals').doc(docId).update({ status: 'pending_retry' });
+                const res = await fetch(
+                  'https://api.tripo3d.ai/v2/task',
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${TRIPO_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                      type: 'image_to_model',
+                      file: {
+                        type: 'jpg',
+                        url: data.imageUrl
+                      }
+                    })
+                  }
+                );
+
+                const json = await res.json();
+
+                console.log(json);
+
+                if (json.data && json.data.task_id) {
+                  checkAiTaskStatus(
+                    json.data.task_id,
+                    docId,
+                    logDiv
+                  );
+                  return;
+                }
+
+              } catch (e) {
+                console.error(e);
+                await new Promise(r => setTimeout(r, 2000));
               }
-          }
+            }
+
+            if (logDiv) {
+              logDiv.innerText =
+                "❌ 生成失敗。もう一度送信してください。";
+            }
+          };
+
+          createWithRetry();
+        }
       });
-  });
+    });
 }
 
 async function checkAiTaskStatus(taskId, docId, logDiv) {
-  const checkInterval = setInterval(async () => {
-      try {
-          const targetUrl = `https://api.tripo3d.ai/v2/task/${taskId}`;
-          const checkRes = await fetch(PROXY_URL + encodeURIComponent(targetUrl), {
-              headers: { 'Authorization': `Bearer ${TRIPO_API_KEY}` }
-          });
-          const checkData = await checkRes.json();
-          
-          if (!checkData.data) return;
-          const status = checkData.data.status;
 
-          if (status === 'success') {
-              clearInterval(checkInterval);
-              if (logDiv) logDiv.innerText = "✨ 3Dモデル完成！動物園に配置します！";
-              
-              const glbUrl = checkData.data.output.glb;
+  const timer = setInterval(async () => {
 
-              // 🌟 モデルデータの読み込み（3Dデータ自体は直読みでCORSエラーが出ないことが多いため、まずは直読みを試す安全設計）
-              gltfLoader.load(glbUrl, (gltf) => {
-                  const model = gltf.scene;
-                  model.position.set((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 2);
-                  model.scale.set(1.5, 1.5, 1.5);
-                  scene.add(model);
-                  animals.push(model);
-                  
-                  db.collection('zoo_animals').doc(docId).update({ status: 'completed', glbUrl: glbUrl });
-              }, undefined, (loadErr) => {
-                  // もし直読みでCORSが出たら、プロキシを挟んでリトライする超安全設計
-                  console.log("プロキシ経由で3Dモデルを再読み込みします...");
-                  gltfLoader.load(PROXY_URL + encodeURIComponent(glbUrl), (gltfProxy) => {
-                      const modelProxy = gltfProxy.scene;
-                      modelProxy.position.set((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 2);
-                      modelProxy.scale.set(1.5, 1.5, 1.5);
-                      scene.add(modelProxy);
-                      animals.push(modelProxy);
-                      db.collection('zoo_animals').doc(docId).update({ status: 'completed', glbUrl: glbUrl });
-                  });
-              });
+    try {
 
-          } else if (status === 'failed') {
-              clearInterval(checkInterval);
-              if (logDiv) logDiv.innerText = "❌ AIによる3Dモデル生成に失敗しました";
-              db.collection('zoo_animals').doc(docId).update({ status: 'failed' });
-          } else {
-              if (logDiv) logDiv.innerText = "⏳ AIが絶賛モデリング中... (約10〜15秒かかります)";
+      const res = await fetch(
+        `https://api.tripo3d.ai/v2/task/${taskId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${TRIPO_API_KEY}`
           }
-      } catch (err) {
-          console.error("ステータス確認エラー:", err);
+        }
+      );
+
+      const json = await res.json();
+
+      console.log(json);
+
+      if (!json.data) return;
+
+      if (json.data.status === 'success') {
+
+        clearInterval(timer);
+
+        logDiv.innerText = "✨ 生成完了！";
+
+        gltfLoader.load(
+          json.data.output.glb,
+          (gltf) => {
+
+            const m = gltf.scene;
+
+            m.position.set(
+              (Math.random() - 0.5) * 4,
+              0,
+              (Math.random() - 0.5) * 2
+            );
+
+            scene.add(m);
+            animals.push(m);
+
+            db.collection('zoo_animals')
+              .doc(docId)
+              .update({
+                status: 'completed'
+              });
+          }
+        );
+
+      } else {
+
+        logDiv.innerText =
+          "⏳ AIモデリング中...";
       }
-  }, 3000);
+
+    } catch (e) {
+      console.error(e);
+    }
+
+  }, 5000);
 }
 
 // ========================================================
-// 5. QRコード自動生成
-// ========================================================
-function generateQRCode() {
-  const mobileUrl = window.location.origin + window.location.pathname.replace('index.html', '') + 'mobile.html';
-  const qrContainer = document.getElementById('qrcode-container');
-  if (qrContainer) {
-      qrContainer.innerHTML = '';
-      new QRCode(qrContainer, {
-          text: mobileUrl,
-          width: 160,
-          height: 160,
-          colorDark: "#ffffff",
-          colorLight: "#121212"
-      });
-  }
-}
-
-// ========================================================
-// 6. 実行トリガー
+// 5. 起動
 // ========================================================
 window.addEventListener('DOMContentLoaded', () => {
-  generateQRCode();
+
+  const mobileUrl =
+    window.location.origin +
+    window.location.pathname.replace(
+      'index.html',
+      ''
+    ) +
+    'mobile.html';
+
+  new QRCode(
+    document.getElementById('qrcode-container'),
+    mobileUrl
+  );
+
   init3D();
-  try {
-      startListeningForAnimals();
-  } catch (e) {
-      console.error("Firebaseの監視開始でエラー:", e);
-  }
+  startListeningForAnimals();
 });
