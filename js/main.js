@@ -21,8 +21,8 @@ const db = firebase.firestore();
 // ========================================================
 const TRIPO_API_KEY = "tsk_DsvEMDOKmX-cJHcztnrtp3g9bTZuL9pqafaim92Yiie"; 
 
-// 🌟 ブラウザのセキュリティ（CORS）をすり抜けるためのプロキシサーバー
-const PROXY_URL = "https://corsproxy.io/?";
+// 🌟 より安定した、世界中で使われている超定番のプロキシサービスに変更
+const PROXY_URL = "https://api.allorigins.win/raw?url=";
 
 // ========================================================
 // 3. Three.js 3D空間のセットアップ
@@ -88,8 +88,9 @@ function startListeningForAnimals() {
               db.collection('zoo_animals').doc(docId).update({ status: 'processing' });
 
               try {
-                  // 🌟 APIのURLの頭に PROXY_URL をくっつけてブラウザの規制を突破します！
-                  const response = await fetch(PROXY_URL + encodeURIComponent('https://api.tripo3d.ai/v2/task'), {
+                  // 🌟 通信エラーを起こしにくい安定したプロキシ経由でリクエスト
+                  const targetUrl = 'https://api.tripo3d.ai/v2/task';
+                  const response = await fetch(PROXY_URL + encodeURIComponent(targetUrl), {
                       method: 'POST',
                       headers: {
                           'Content-Type': 'application/json',
@@ -103,10 +104,11 @@ function startListeningForAnimals() {
                           }
                       })
                   });
+                  
                   const resData = await response.json();
                   
                   if (!resData.data || !resData.data.task_id) {
-                      throw new Error(resData.message || "タスクIDの取得に失敗しました。");
+                      throw new Error(resData.message || "AI側からエラーが返されました。キーや画像を確認してください。");
                   }
                   
                   const taskId = resData.data.task_id;
@@ -115,6 +117,8 @@ function startListeningForAnimals() {
               } catch (err) {
                   console.error("AIタスク作成失敗:", err);
                   if (logDiv) logDiv.innerText = "❌ AIタスクの作成に失敗しました: " + err.message;
+                  // 失敗したらステータスを戻して、再トライできるようにする
+                  db.collection('zoo_animals').doc(docId).update({ status: 'pending_retry' });
               }
           }
       });
@@ -124,8 +128,8 @@ function startListeningForAnimals() {
 async function checkAiTaskStatus(taskId, docId, logDiv) {
   const checkInterval = setInterval(async () => {
       try {
-          // 🌟 ここもCORS対策のプロキシを挟みます
-          const checkRes = await fetch(PROXY_URL + encodeURIComponent(`https://api.tripo3d.ai/v2/task/${taskId}`), {
+          const targetUrl = `https://api.tripo3d.ai/v2/task/${taskId}`;
+          const checkRes = await fetch(PROXY_URL + encodeURIComponent(targetUrl), {
               headers: { 'Authorization': `Bearer ${TRIPO_API_KEY}` }
           });
           const checkData = await checkRes.json();
@@ -139,8 +143,8 @@ async function checkAiTaskStatus(taskId, docId, logDiv) {
               
               const glbUrl = checkData.data.output.glb;
 
-              // 🌟 3Dデータの読み込みにもプロキシを挟んで安全にロードします
-              gltfLoader.load(PROXY_URL + encodeURIComponent(glbUrl), (gltf) => {
+              // 🌟 モデルデータの読み込み（3Dデータ自体は直読みでCORSエラーが出ないことが多いため、まずは直読みを試す安全設計）
+              gltfLoader.load(glbUrl, (gltf) => {
                   const model = gltf.scene;
                   model.position.set((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 2);
                   model.scale.set(1.5, 1.5, 1.5);
@@ -148,6 +152,17 @@ async function checkAiTaskStatus(taskId, docId, logDiv) {
                   animals.push(model);
                   
                   db.collection('zoo_animals').doc(docId).update({ status: 'completed', glbUrl: glbUrl });
+              }, undefined, (loadErr) => {
+                  // もし直読みでCORSが出たら、プロキシを挟んでリトライする超安全設計
+                  console.log("プロキシ経由で3Dモデルを再読み込みします...");
+                  gltfLoader.load(PROXY_URL + encodeURIComponent(glbUrl), (gltfProxy) => {
+                      const modelProxy = gltfProxy.scene;
+                      modelProxy.position.set((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 2);
+                      modelProxy.scale.set(1.5, 1.5, 1.5);
+                      scene.add(modelProxy);
+                      animals.push(modelProxy);
+                      db.collection('zoo_animals').doc(docId).update({ status: 'completed', glbUrl: glbUrl });
+                  });
               });
 
           } else if (status === 'failed') {
