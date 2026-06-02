@@ -67,83 +67,46 @@ function animate() {
 }
 
 // ========================================================
-// 4. AI連携システム
+// 4. Firebase監視 ＆ Firebase Functionsによる安全な3D化
 // ========================================================
 function startListeningForAnimals() {
   const logDiv = document.getElementById('status-log');
+  
+  // 🌟 あなたのFunctionsのURL（先ほどのスクリーンショットからコピー）
+  const FUNCTIONS_URL = "https://createtripotask-6k2kfohwbq-uc.a.run.app";
 
-  db.collection('zoo_animals')
-    .where('status', '==', 'pending')
-    .onSnapshot((snapshot) => {
-
+  db.collection('zoo_animals').where('status', '==', 'pending')
+  .onSnapshot((snapshot) => {
       snapshot.docChanges().forEach(async (change) => {
-
-        if (change.type === 'added') {
-
-          const docId = change.doc.id;
-          const data = change.doc.data();
-
-          if (logDiv) {
-            logDiv.innerText = "🐾 受信！AIに生成を依頼中...";
-          }
-
-          db.collection('zoo_animals')
-            .doc(docId)
-            .update({ status: 'processing' });
-
-          const createWithRetry = async (retries = 5) => {
-
-            for (let i = 0; i < retries; i++) {
+          if (change.type === 'added') {
+              const docId = change.doc.id;
+              const animalData = change.doc.data();
+              
+              if (logDiv) logDiv.innerText = "🐾 受信！AIに生成を依頼中...";
+              db.collection('zoo_animals').doc(docId).update({ status: 'processing' });
 
               try {
-
-                const res = await fetch(
-                  'https://api.tripo3d.ai/v2/task',
-                  {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${TRIPO_API_KEY}`
-                    },
-                    body: JSON.stringify({
-                      type: 'image_to_model',
-                      file: {
-                        type: 'jpg',
-                        url: data.imageUrl
-                      }
-                    })
+                  // 🌟 ブラウザから直接APIを叩かず、自分のFunctionsに中継を頼む
+                  const response = await fetch(FUNCTIONS_URL, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ imageUrl: animalData.imageUrl })
+                  });
+                  
+                  const resData = await response.json();
+                  
+                  if (resData.task_id) {
+                      checkAiTaskStatus(resData.task_id, docId, logDiv);
+                  } else {
+                      throw new Error("タスク作成失敗");
                   }
-                );
-
-                const json = await res.json();
-
-                console.log(json);
-
-                if (json.data && json.data.task_id) {
-                  checkAiTaskStatus(
-                    json.data.task_id,
-                    docId,
-                    logDiv
-                  );
-                  return;
-                }
-
-              } catch (e) {
-                console.error(e);
-                await new Promise(r => setTimeout(r, 2000));
+              } catch (err) {
+                  console.error(err);
+                  if (logDiv) logDiv.innerText = "❌ 生成依頼に失敗しました。";
               }
-            }
-
-            if (logDiv) {
-              logDiv.innerText =
-                "❌ 生成失敗。もう一度送信してください。";
-            }
-          };
-
-          createWithRetry();
-        }
+          }
       });
-    });
+  });
 }
 
 async function checkAiTaskStatus(taskId, docId, logDiv) {
