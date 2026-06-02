@@ -11,7 +11,6 @@ const firebaseConfig = {
   measurementId: "G-1DC2PMC8X1"
 };
 
-// Firebaseの初期化（二重初期化を防ぐ安全設計）
 if (!firebase.apps.length) {
   firebase.initializeApp(firebaseConfig);
 }
@@ -22,18 +21,21 @@ const db = firebase.firestore();
 // ========================================================
 const TRIPO_API_KEY = "tsk_DsvEMDOKmX-cJHcztnrtp3g9bTZuL9pqafaim92Yiie"; 
 
+// 🌟 ブラウザのセキュリティ（CORS）をすり抜けるためのプロキシサーバー
+const PROXY_URL = "https://corsproxy.io/?";
+
 // ========================================================
 // 3. Three.js 3D空間のセットアップ
 // ========================================================
 let scene, camera, renderer, gltfLoader;
-const animals = []; // 生成された動物たちをストックする配列
+const animals = [];
 
 function init3D() {
   const container = document.getElementById('canvas-container');
   if (!container) return;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x121212); // カッコレースな黒背景
+  scene.background = new THREE.Color(0x121212);
 
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(0, 3, 8);
@@ -43,14 +45,12 @@ function init3D() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   container.appendChild(renderer.domElement);
 
-  // AIモデルが綺麗に見えるように光（ライト）を当てる
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
   scene.add(ambientLight);
   const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
   directionalLight.position.set(5, 10, 5);
   scene.add(directionalLight);
 
-  // GLTF (.glb) 読み込み用のマシーンを準備
   gltfLoader = new THREE.GLTFLoader();
 
   window.addEventListener('resize', onWindowResize);
@@ -59,7 +59,6 @@ function init3D() {
 
 function animate() {
   requestAnimationFrame(animate);
-  // 登場した動物たちをゆっくり回転させる
   animals.forEach(animal => {
       animal.rotation.y += 0.01;
   });
@@ -78,7 +77,6 @@ function onWindowResize() {
 function startListeningForAnimals() {
   const logDiv = document.getElementById('status-log');
 
-  // データベースの「zoo_animals」に新しいデータ（pending）が入るのをリアルタイム監視
   db.collection('zoo_animals').where('status', '==', 'pending')
   .onSnapshot((snapshot) => {
       snapshot.docChanges().forEach(async (change) => {
@@ -87,13 +85,11 @@ function startListeningForAnimals() {
               const animalData = change.doc.data();
               
               if (logDiv) logDiv.innerText = "🐾 新しい写真を受信！AIで3Dモデルを生成中...";
-              
-              // データベースのステータスを「processing（処理中）」に更新して重複を防ぐ
               db.collection('zoo_animals').doc(docId).update({ status: 'processing' });
 
               try {
-                  // Tripo3Dの画像変換モード（image_to_model）でタスクを送信
-                  const response = await fetch('https://api.tripo3d.ai/v2/task', {
+                  // 🌟 APIのURLの頭に PROXY_URL をくっつけてブラウザの規制を突破します！
+                  const response = await fetch(PROXY_URL + encodeURIComponent('https://api.tripo3d.ai/v2/task'), {
                       method: 'POST',
                       headers: {
                           'Content-Type': 'application/json',
@@ -110,12 +106,10 @@ function startListeningForAnimals() {
                   const resData = await response.json();
                   
                   if (!resData.data || !resData.data.task_id) {
-                      throw new Error(resData.message || "タスクIDの取得に失敗しました。APIキーを確認してください。");
+                      throw new Error(resData.message || "タスクIDの取得に失敗しました。");
                   }
                   
                   const taskId = resData.data.task_id;
-
-                  // AIの生成が終わるまで数秒おきにチェックする（ポーリング開始）
                   checkAiTaskStatus(taskId, docId, logDiv);
 
               } catch (err) {
@@ -127,11 +121,11 @@ function startListeningForAnimals() {
   });
 }
 
-// AIの進捗を何度も確認する関数
 async function checkAiTaskStatus(taskId, docId, logDiv) {
   const checkInterval = setInterval(async () => {
       try {
-          const checkRes = await fetch(`https://api.tripo3d.ai/v2/task/${taskId}`, {
+          // 🌟 ここもCORS対策のプロキシを挟みます
+          const checkRes = await fetch(PROXY_URL + encodeURIComponent(`https://api.tripo3d.ai/v2/task/${taskId}`), {
               headers: { 'Authorization': `Bearer ${TRIPO_API_KEY}` }
           });
           const checkData = await checkRes.json();
@@ -143,19 +137,16 @@ async function checkAiTaskStatus(taskId, docId, logDiv) {
               clearInterval(checkInterval);
               if (logDiv) logDiv.innerText = "✨ 3Dモデル完成！動物園に配置します！";
               
-              // AIが生成してくれた本物の3Dデータ(.glb)のURLを取得
               const glbUrl = checkData.data.output.glb;
 
-              // 完成した.glbファイルをThree.jsの空間に召喚する！
-              gltfLoader.load(glbUrl, (gltf) => {
+              // 🌟 3Dデータの読み込みにもプロキシを挟んで安全にロードします
+              gltfLoader.load(PROXY_URL + encodeURIComponent(glbUrl), (gltf) => {
                   const model = gltf.scene;
-                  // 出現位置をランダムにばらす（横並びになるように）
                   model.position.set((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 2);
-                  model.scale.set(1.5, 1.5, 1.5); // モデルの大きさ調整
+                  model.scale.set(1.5, 1.5, 1.5);
                   scene.add(model);
-                  animals.push(model); // 回転アニメーション対象に入れる
+                  animals.push(model);
                   
-                  // データベースのステータスを「completed（完了）」にする
                   db.collection('zoo_animals').doc(docId).update({ status: 'completed', glbUrl: glbUrl });
               });
 
@@ -169,7 +160,7 @@ async function checkAiTaskStatus(taskId, docId, logDiv) {
       } catch (err) {
           console.error("ステータス確認エラー:", err);
       }
-  }, 3000); // 3秒おきに確認
+  }, 3000);
 }
 
 // ========================================================
@@ -191,16 +182,11 @@ function generateQRCode() {
 }
 
 // ========================================================
-// 6. 実行トリガー（安全第一の順序）
+// 6. 実行トリガー
 // ========================================================
 window.addEventListener('DOMContentLoaded', () => {
-  // ① まず何よりも先にQRコードを絶対に表示する！
   generateQRCode();
-  
-  // ② そのあとにThree.jsの3D空間を作る
   init3D();
-  
-  // ③ 最後にエラーが起きやすいFirebaseの監視を安全にスタート
   try {
       startListeningForAnimals();
   } catch (e) {
