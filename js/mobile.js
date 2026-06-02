@@ -1,31 +1,74 @@
+// ========================================================
+// 1. 取得したFirebaseのConfigを正確に反映
+// ========================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyDMO7JZ7LPyvox8Q7SG_hFyODNZs-8Z9HI",
+  authDomain: "d-zoo-project.firebaseapp.com",
+  projectId: "d-zoo-project",
+  storageBucket: "d-zoo-project.firebasestorage.app",
+  messagingSenderId: "961516224972",
+  appId: "1:961516224972:web:59439f07ea7b4456dd5d69",
+  measurementId: "G-1DC2PMC8X1"
+};
+
+// Firebase初期化
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const storage = firebase.storage();
+
+// ========================================================
+// 2. スマホ画面処理
+// ========================================================
 document.addEventListener('DOMContentLoaded', () => {
   const imageInput = document.getElementById('image-input');
   const uploadText = document.getElementById('upload-text');
   const previewContainer = document.getElementById('preview-container');
   const imagePreview = document.getElementById('image-preview');
   const sendButton = document.getElementById('send-button');
-  const dropZone = document.getElementById('drop-zone');
 
-  // スマホで写真が選択されたときの処理
+  let selectedFile = null;
+
   imageInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      
-      if (file && file.type.startsWith('image/')) {
+      selectedFile = e.target.files[0];
+      if (selectedFile && selectedFile.type.startsWith('image/')) {
           const reader = new FileReader();
-
-          // 画像の読み込みが完了したらプレビューにセット
           reader.onload = (event) => {
               imagePreview.src = event.target.result;
-              
-              // 見た目の切り替え（文字を隠して、画像を表示）
               uploadText.style.display = 'none';
               previewContainer.style.display = 'block';
-              
-              // 送信ボタンを押せるようにする！
               sendButton.disabled = false;
           };
+          reader.readAsDataURL(selectedFile);
+      }
+  });
 
-          reader.readAsDataURL(file);
+  sendButton.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      sendButton.disabled = true;
+      sendButton.innerText = "送信中...";
+
+      try {
+          // ① 画像をFirebase Storageへ送信
+          const storageRef = storage.ref(`zoo_images/${Date.now()}_${selectedFile.name}`);
+          const snapshot = await storageRef.put(selectedFile);
+          const imageUrl = await snapshot.ref.getDownloadURL();
+
+          // ② Firestoreにリクエストを追記（PC側がこれを自動検知します！）
+          await db.collection('zoo_animals').add({
+              imageUrl: imageUrl,
+              status: 'pending',
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          alert("動物園に写真を送信しました！PC画面のAI生成をお楽しみに！");
+          location.reload();
+
+      } catch (error) {
+          console.error("送信エラー:", error);
+          alert("送信に失敗しました。Firebaseのテストモード設定を確認してください。");
+          sendButton.disabled = false;
+          sendButton.innerText = "動物園に送り込む！";
       }
   });
 });

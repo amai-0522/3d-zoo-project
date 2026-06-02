@@ -1,78 +1,187 @@
-// ==========================================
-// 1. Three.js で3D空間の土台を作る
-// ==========================================
-let scene, camera, renderer, cube;
+// ========================================================
+// 1. Firebaseの設定（取得してもらったデータを反映）
+// ========================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyDMO7JZ7LPyvox8Q7SG_hFyODNZs-8Z9HI",
+  authDomain: "d-zoo-project.firebaseapp.com",
+  projectId: "d-zoo-project",
+  storageBucket: "d-zoo-project.firebasestorage.app",
+  messagingSenderId: "961516224972",
+  appId: "1:961516224972:web:59439f07ea7b4456dd5d69",
+  measurementId: "G-1DC2PMC8X1"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// ========================================================
+// 2. Tripo3D AI設定（★ご自身のAPIキーを入れてください★）
+// ========================================================
+const TRIPO_API_KEY = "tsk_DsvEMDOKmX-cJHcztnrtp3g9bTZuL9pqafaim92Yiie"; 
+
+// ========================================================
+// 3. Three.js 3D空間のセットアップ
+// ========================================================
+let scene, camera, renderer, gltfLoader;
+const animals = []; // 生成された動物たちをストックする配列
 
 function init3D() {
-    const container = document.getElementById('canvas-container');
-    if (!container) return;
+  const container = document.getElementById('canvas-container');
+  if (!container) return;
 
-    // 空間（シーン）を作成
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a1a); // 背景を暗めのグレーに
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x121212);
 
-    // カメラを設定（視野角、アスペクト比、手前、奥）
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = 5;
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 3, 8);
+  camera.lookAt(0, 1, 0);
 
-    // レンダラー（描画マシン）を設定して画面に追加
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    container.appendChild(renderer.domElement);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  container.appendChild(renderer.domElement);
 
-    // 【仮のオブジェクト】真ん中に立方体をひとつ浮かべる
-    const geometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
-    const material = new THREE.MeshBasicMaterial({ color: 0x00ff88, wireframe: true });
-    cube = new THREE.Mesh(geometry, material);
-    scene.add(cube);
+  // AIモデルが綺麗に見えるように光（ライト）を当てる
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+  scene.add(ambientLight);
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  directionalLight.position.set(5, 10, 5);
+  scene.add(directionalLight);
 
-    // 画面サイズが変更されたときのレスポンシブ対応
-    window.addEventListener('resize', onWindowResize);
+  // GLTF (.glb) 読み込み用のマシーンを準備
+  gltfLoader = new THREE.GLTFLoader();
 
-    // アニメーションループ開始
-    animate();
+  window.addEventListener('resize', onWindowResize);
+  animate();
 }
 
-// 毎フレーム実行されるループ関数（ここで立方体を回す）
 function animate() {
-    requestAnimationFrame(animate);
-
-    if (cube) {
-        cube.rotation.x += 0.01;
-        cube.rotation.y += 0.01;
-    }
-
-    renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+  // 登場した動物たちをゆっくり回転させる
+  animals.forEach(animal => {
+      animal.rotation.y += 0.01;
+  });
+  renderer.render(scene, camera);
 }
 
 function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// ==========================================
-// 2. スマホ接続用のQRコードを自動生成する
-// ==========================================
+// ========================================================
+// 4. Firebase監視 ＆ Tripo3D AIによる自動3D化システム
+// ========================================================
+function startListeningForAnimals() {
+  const logDiv = document.getElementById('status-log');
+
+  // データベースの「zoo_animals」に新しいデータ（pending）が入るのを24時間リアルタイム監視
+  db.collection('zoo_animals').where('status', '==', 'pending')
+  .onSnapshot((snapshot) => {
+      snapshot.docChanges().forEach(async (change) => {
+          if (change.type === 'added') {
+              const docId = change.doc.id;
+              const animalData = change.doc.data();
+              
+              logDiv.innerText = "🐾 新しい写真を受信！AIで3Dモデルを生成中...";
+              // データベースのステータスを「processing（処理中）」に更新して重複を防ぐ
+              db.collection('zoo_animals').doc(docId).update({ status: 'processing' });
+
+              // ① Tripo3Dに「この画像から3Dを作って！」とタスクを投げる
+              try {
+                  const response = await fetch('https://api.tripo3d.ai/v2/task', {
+                      method: 'POST',
+                      headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${TRIPO_API_KEY}`
+                      },
+                      body: JSON.stringify({
+                          type: 'text_to_model', // または 'image_to_model'
+                          prompt: 'A low poly cute 3D model of an animal based on image', // 補助プロンプト
+                          file: {
+                              type: 'jpg',
+                              url: animalData.imageUrl
+                          }
+                      })
+                  });
+                  const resData = await response.json();
+                  const taskId = resData.data.task_id;
+
+                  // ② AIの生成が終わるまで数秒おきにチェックする（ポーリング）
+                  checkAiTaskStatus(taskId, docId, logDiv);
+
+              } catch (err) {
+                  console.error("AIタスク作成失敗:", err);
+                  logDiv.innerText = "❌ AIタスクの作成に失敗しました";
+              }
+          }
+      });
+  });
+}
+
+// AIの進捗を何度も確認する関数
+async function checkAiTaskStatus(taskId, docId, logDiv) {
+  const checkInterval = setInterval(async () => {
+      try {
+          const checkRes = await fetch(`https://api.tripo3d.ai/v2/task/${taskId}`, {
+              headers: { 'Authorization': `Bearer ${TRIPO_API_KEY}` }
+          });
+          const checkData = await checkRes.json();
+          const status = checkData.data.status;
+
+          if (status === 'success') {
+              clearInterval(checkInterval);
+              logDiv.innerText = "✨ 3Dモデル完成！動物園に配置します！";
+              
+              // AIが生成してくれた本物の3Dデータ(.glb)のURLを取得
+              const glbUrl = checkData.data.output.glb;
+
+              // ③ 完成した.glbファイルをThree.jsの空間に召喚する！
+              gltfLoader.load(glbUrl, (gltf) => {
+                  const model = gltf.scene;
+                  // 出現位置をランダムにばらす（横並びになるように）
+                  model.position.set((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 2);
+                  model.scale.set(1.5, 1.5, 1.5); // モデルの大きさ調整
+                  scene.add(model);
+                  animals.push(model); // 回転アニメーション対象に入れる
+                  
+                  // データベースのステータスを「completed（完了）」にする
+                  db.collection('zoo_animals').doc(docId).update({ status: 'completed', glbUrl: glbUrl });
+              });
+
+          } else if (status === 'failed') {
+              clearInterval(checkInterval);
+              logDiv.innerText = "❌ AIによる3Dモデル生成に失敗しました";
+              db.collection('zoo_animals').doc(docId).update({ status: 'failed' });
+          } else {
+              logDiv.innerText = "⏳ AIが絶賛モデリング中... (約10〜15秒かかります)";
+          }
+      } catch (err) {
+          console.error("ステータス確認エラー:", err);
+      }
+  }, 3000); // 3秒おきに確認
+}
+
+// ========================================================
+// 5. QRコード自動生成
+// ========================================================
 function generateQRCode() {
-    // 現在のGitHub PagesのURLから、自動でmobile.htmlへのパスを計算
-    const mobileUrl = window.location.origin + window.location.pathname.replace('index.html', '') + 'mobile.html';
-    const qrContainer = document.getElementById('qrcode-container');
-    
-    if (qrContainer) {
-        qrContainer.innerHTML = '';
-        new QRCode(qrContainer, {
-            text: mobileUrl,
-            width: 160,
-            height: 160,
-            colorDark: "#ffffff",  // スタイリッシュに白黒反転
-            colorLight: "#1a1a1a"
-        });
-    }
+  const mobileUrl = window.location.origin + window.location.pathname.replace('index.html', '') + 'mobile.html';
+  const qrContainer = document.getElementById('qrcode-container');
+  if (qrContainer) {
+      qrContainer.innerHTML = '';
+      new QRCode(qrContainer, {
+          text: mobileUrl,
+          width: 160,
+          height: 160,
+          colorDark: "#ffffff",
+          colorLight: "#121212"
+      });
+  }
 }
 
-// 画面が読み込まれたら両方を実行
 window.addEventListener('DOMContentLoaded', () => {
-    init3D();
-    generateQRCode();
+  init3D();
+  startListeningForAnimals();
+  generateQRCode();
 });
